@@ -36,7 +36,7 @@ impl Move {
             "forward" => Move::Fwd(second),
             "up" => Move::Up(second),
             "down" => Move::Down(second),
-            _ => unreachable!("Unrecognized move"),
+            _ => unreachable!("Unrecognized move {}", first),
         }
     }
 }
