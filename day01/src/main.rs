@@ -1,15 +1,15 @@
-use std::{error::Error, fs, io::Error as IOError};
+use std::{error::Error, fs};
 
 use itertools::Itertools;
 
 const FILENAME: &str = "input.txt";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let file_data = load_file(FILENAME)?;
+    let file_data = fs::read_to_string(FILENAME)?;
     let data: Vec<i32> = parse(&file_data).collect();
     let count = increase_count(pairs(data.iter().copied()));
     println!("Part1 = {}", count);
-    let count = increase_count(pairs(triplets(data.into_iter()).map(|(a, b, c)| a+b+c)));
+    let count = increase_count(pairs(triplets(data.into_iter()).map(|(a, b, c)| a + b + c)));
     println!("Part2 = {}", count);
     Ok(())
 }
@@ -19,19 +19,15 @@ fn parse(data: &str) -> impl Iterator<Item = i32> + '_ {
         .map(|string| string.parse().expect("every value must be an integer"))
 }
 
-fn load_file(filename: &str) -> Result<String, IOError> {
-    fs::read_to_string(filename)
-}
-
-fn pairs(iter : impl Iterator<Item = i32>) -> impl Iterator<Item = (i32, i32)> {
+fn pairs(iter: impl Iterator<Item = i32>) -> impl Iterator<Item = (i32, i32)> {
     iter.tuple_windows()
 }
 
-fn triplets(iter : impl Iterator<Item = i32>) -> impl Iterator<Item = (i32, i32, i32)> {
+fn triplets(iter: impl Iterator<Item = i32>) -> impl Iterator<Item = (i32, i32, i32)> {
     iter.tuple_windows()
 }
 
-fn increase_count(iter : impl Iterator<Item = (i32, i32)>) -> usize {
+fn increase_count(iter: impl Iterator<Item = (i32, i32)>) -> usize {
     iter.filter(|(a, b)| b > a).count()
 }
 
@@ -54,33 +50,50 @@ mod testing {
     }
     #[test]
     fn read_file() {
-        parse(&load_file(FILENAME).unwrap()).count();            
+        parse(&fs::read_to_string(FILENAME).unwrap()).count();
     }
     #[test]
     fn tuples() {
-        let data = vec![1,2,3,4];
+        let data = vec![1, 2, 3, 4];
         let mut pairs = pairs(data.into_iter());
-        assert_eq!(pairs.next(), Some((1,2)));
-        assert_eq!(pairs.next(), Some((2,3)));
-        assert_eq!(pairs.next(), Some((3,4)));
+        assert_eq!(pairs.next(), Some((1, 2)));
+        assert_eq!(pairs.next(), Some((2, 3)));
+        assert_eq!(pairs.next(), Some((3, 4)));
         assert_eq!(pairs.next(), None);
     }
     #[test]
     fn test_solution() {
         let count = increase_count(pairs(parse(DATA1)));
-        assert_eq!(count, 7);        
+        assert_eq!(count, 7);
     }
     #[test]
     fn triplets_test() {
-        let data = vec![1,2,3,4];
+        let data = vec![1, 2, 3, 4];
         let mut triples = triplets(data.into_iter());
-        assert_eq!(triples.next(), Some((1,2,3)));
-        assert_eq!(triples.next(), Some((2,3,4)));
+        assert_eq!(triples.next(), Some((1, 2, 3)));
+        assert_eq!(triples.next(), Some((2, 3, 4)));
         assert_eq!(triples.next(), None);
     }
     #[test]
     fn part2_test() {
-        let count = increase_count(pairs(triplets(parse(DATA1)).map(|(a, b, c)| a+b+c)));
-        assert_eq!(count, 5);
+        let data = parse(DATA1);
+        let triplets = triplets(data);
+        let pairs = pairs(triplets.map(|(a, b, c)| a + b + c));
+        let increase_count = increase_count(pairs);
+        assert_eq!(increase_count, 5);
+    }
+    #[test]
+    fn part1_answer() {
+        let file_data = fs::read_to_string(FILENAME).unwrap();
+        let data: Vec<i32> = parse(&file_data).collect();
+        assert_eq!(increase_count(pairs(data.iter().copied())), 1616);
+    }
+    #[test]
+    fn part2_answer() {
+        let file_data = fs::read_to_string(FILENAME).unwrap();        
+        assert_eq!(
+            increase_count(pairs(triplets(parse(&file_data)).map(|(a, b, c)| a + b + c))),
+            1645
+        );
     }
 }
