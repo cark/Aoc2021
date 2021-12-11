@@ -2,7 +2,7 @@ use std::{collections::HashMap, error::Error, fs};
 
 const FILENAME: &str = "input.txt";
 
-fn main()  -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let input = fs::read_to_string(FILENAME)?;
     let lines = Line::parse_lines(&input);
     let mut map = Map::new();
