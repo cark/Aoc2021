@@ -12,7 +12,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn parse_fish(str: &str) -> [usize; 9] {
+type FreqArray = [usize; 9];
+
+fn parse_fish(str: &str) -> FreqArray {
     let mut result = [0; 9];
     str.split(',')
         .filter_map(|v| match v.parse() {
@@ -23,7 +25,7 @@ fn parse_fish(str: &str) -> [usize; 9] {
     result
 }
 
-fn turn(data: [usize; 9]) -> [usize; 9] {
+fn turn(data: FreqArray) -> FreqArray {
     let mut new_data = [0; 9];
     for (i, count) in data.iter().enumerate() {
         if i == 0 {
@@ -36,7 +38,7 @@ fn turn(data: [usize; 9]) -> [usize; 9] {
     new_data
 }
 
-fn n_turns(data: [usize; 9], n: usize) -> [usize; 9] {
+fn n_turns(data: FreqArray, n: usize) -> FreqArray {
     let mut data = data.to_owned();
     for _ in 0..n {
         data = turn(data);
@@ -44,7 +46,7 @@ fn n_turns(data: [usize; 9], n: usize) -> [usize; 9] {
     data
 }
 
-fn sum(data: &[usize; 9]) -> usize {
+fn sum(data: &FreqArray) -> usize {
     data.iter().sum()
 }
 
