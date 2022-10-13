@@ -83,13 +83,13 @@ impl HeightMap {
     }
 
     pub fn top_basins_product(&self) -> i32 {
-        let mut result = self.low_points()
+        let mut result = self
+            .low_points()
             .map(|p| p.get_basin(self))
             .collect::<Vec<i32>>();
         result.sort();
         result.into_iter().rev().take(3).product()
     }
-
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -149,7 +149,7 @@ impl LowPoint {
     fn get_basin(&self, hm: &HeightMap) -> i32 {
         let mut found = HashSet::from([self.0.as_pair()]);
         let mut queue = VecDeque::from([BasinPoint::try_new(self.0, hm).unwrap()]);
-        let mut result = 1; 
+        let mut result = 1;
         while let Some(current) = queue.pop_front() {
             for neighbor in current.0.neighbors(hm) {
                 if let Some(bp) = BasinPoint::try_new(neighbor, hm) {
