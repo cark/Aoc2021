@@ -54,6 +54,7 @@ impl Grid {
     }
 
     pub fn sub_step2(&mut self) {
+        // we did dijkstra yesterday, let do it quick and dirty this time
         loop {
             let flashables = self.flashables();
             if flashables.is_empty() {
