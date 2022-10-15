@@ -230,6 +230,7 @@ impl<'a, Sr: Route> Iterator for PathIterator<'a, Sr> {
 }
 
 impl<'a, Sr: Route> PathIterator<'a, Sr> {
+    #[inline(always)]
     fn push_node(&mut self, node_id: NodeIndex) -> bool {
         let node = self.graph.node(node_id);
         if node.is_start || self.route.contains(&node_id) {
@@ -255,7 +256,6 @@ mod tests {
     fn test_is_big() {
         assert!(!Node::new("bAe").is_big);
         assert!(Node::new("BAE").is_big);
-        assert_eq!(size_of::<NodeIndex>(), size_of::<usize>()); // 64 bits, just the usize
     }
 
     #[test]
