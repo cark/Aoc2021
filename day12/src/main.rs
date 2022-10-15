@@ -99,12 +99,8 @@ impl Graph {
             self.ensure_node_name(from_name),
             self.ensure_node_name(to_name),
         );
-        if self.node(from_idx).name != "end" {
-            self.node_mut(from_idx).edges.push(to_idx);
-        }
-        if self.node(to_idx).name != "end" {
-            self.node_mut(to_idx).edges.push(from_idx);
-        }
+        self.node_mut(from_idx).edges.push(to_idx);
+        self.node_mut(to_idx).edges.push(from_idx);
     }
 
     pub fn path_iter<Sr: Route + Default + 'static>(
@@ -243,7 +239,7 @@ impl<'a, Sr: Route> PathIterator<'a, Sr> {
                 self.route.insert(node_id);
             }
             self.current_path.push(node_id);
-            self.stack.push(&node.edges);
+            self.stack.push(if node.is_end { &[] } else { &node.edges });
             true
         }
     }
