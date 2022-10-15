@@ -248,8 +248,6 @@ impl<'a, Sr: Route> PathIterator<'a, Sr> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
-
     use super::*;
 
     #[test]
