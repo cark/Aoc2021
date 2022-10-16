@@ -91,6 +91,7 @@ impl Prob {
             }
         }
 
+        
         let mut vd = VecDeque::with_capacity(3);
         let mut scores = ScoreMap::default();
         let mut cache = Cache::default();
