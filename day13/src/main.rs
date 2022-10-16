@@ -1,3 +1,5 @@
+//#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::fs::read_to_string;
@@ -12,10 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Part 1 : {}",
         problem.apply_instruction().unwrap().points.len()
     );
-    println!(
-        "Part 2 :\n{}",
-        problem.iter().last().unwrap()
-    );
+    println!("Part 2 :\n{}", problem.iter().last().unwrap());
     Ok(())
 }
 
@@ -184,13 +183,16 @@ mod tests {
     #[test]
     fn test_iter_and_display() {
         let result = Problem::from_string(SAMPLE).iter().last().unwrap();
-        assert_eq!(format!("{}", result), "#####
+        assert_eq!(
+            format!("{}", result),
+            "#####
 #...#
 #...#
 #...#
-#####");
+#####"
+        );
     }
-    
+
     const SAMPLE: &str = "6,10
 0,14
 9,10
