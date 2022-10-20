@@ -68,7 +68,9 @@ fn max_dy(target: &Target) -> i32 {
 fn find_highest_y(target: &Target) -> i32 {
     // - max = sum(range(max_dy))
     // - in our example that's 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2 + 1 = 45
-    (1..=max_dy(target)).sum()
+    // - That's an arithmetic serie so the result is  (n + 1) * (v(n) + v(1)) / 2
+    let n = max_dy(target);
+    (n + 1) * n / 2 // better than my first idea : (1..=max_dy(target)).sum()
 }
 
 fn min_dy(target: &Target) -> i32 {
