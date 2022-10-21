@@ -14,11 +14,18 @@ fn main() {
 struct Reader<'a> {
     text: &'a str,
     bit_index: usize,
+    hex_index: usize,
+    hex: Option<u8>,
 }
 
 impl<'a> Reader<'a> {
     fn new(text: &'a str) -> Self {
-        Self { text, bit_index: 0 }
+        Self {
+            text,
+            bit_index: 0,
+            hex: None,
+            hex_index: usize::MAX,
+        }
     }
 
     #[inline(always)]
@@ -30,18 +37,16 @@ impl<'a> Reader<'a> {
     }
 
     fn next_bits(&mut self, bit_count: u8) -> u64 {
-        let mut hex_index = usize::MAX;
-        let mut hex = None;
         let mut result: u64 = 0;
         let mut bits_left = bit_count;
         while bits_left > 0 {
             result <<= 1;
             let (curr_index, bit_index) = (self.bit_index >> 2, self.bit_index & 0b11);
-            if curr_index != hex_index {
-                hex_index = curr_index;
-                hex = Some(self.hex_at(hex_index));
+            if curr_index != self.hex_index {
+                self.hex_index = curr_index;
+                self.hex = Some(self.hex_at(self.hex_index));
             }
-            let bit = ((hex.unwrap() >> (3 - bit_index)) & 1) as u64;
+            let bit = ((self.hex.unwrap() >> (3 - bit_index)) & 1) as u64;
             result |= bit;
             self.bit_index += 1;
             bits_left -= 1
@@ -82,7 +87,7 @@ impl<'a, W: WalkReducer> Walker<'a, W> {
         match type_id {
             4 => W::process_packet(self, version, 4, None),
             _ => {
-                let state = OpPacketsState::new(&mut self.reader);
+                let state = OpPacketsState::new(self);
                 W::process_packet(self, version, type_id, Some(state))
             }
         }
@@ -98,33 +103,6 @@ impl<'a, W: WalkReducer> Walker<'a, W> {
                 break result;
             }
         }
-    }
-
-    fn walk_op_packet(&mut self, op_packet_state: &mut OpPacketsState) -> u64 {
-        match op_packet_state {
-            OpPacketsState::Type0 { bits, .. } => {
-                let current_bit = self.reader.bit_index;
-                let result = self.walk_packet();
-                *bits += self.reader.bit_index - current_bit;
-                result
-            }
-            OpPacketsState::Type1 { packets, .. } => {
-                *packets += 1;
-                self.walk_packet()
-            }
-        }
-    }
-
-    fn reduce_op_packets<F: Fn(u64, u64) -> u64>(
-        &mut self,
-        op_packet_state: &mut OpPacketsState,
-        mut state: u64,
-        f: F,
-    ) -> u64 {
-        while op_packet_state.has_more() {
-            state = f(state, self.walk_op_packet(op_packet_state));
-        }
-        state
     }
 }
 
@@ -151,10 +129,9 @@ impl WalkReducer for VersionSum {
                 walker.literal_groups_val();
                 version
             }
-            _ => {
-                version
-                    + walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add)
-            }
+            _ => op_packet_state
+                .unwrap()
+                .fold(walker, version, u64::wrapping_add),
         }
     }
 }
@@ -169,10 +146,10 @@ impl WalkReducer for Evaluator {
         op_packet_state: Option<OpPacketsState>,
     ) -> u64 {
         match type_id {
-            0 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add),
-            1 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 1, u64::wrapping_mul),
-            2 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), u64::MAX, u64::min),
-            3 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::max),
+            0 => op_packet_state.unwrap().fold(walker, 0, u64::wrapping_add),
+            1 => op_packet_state.unwrap().fold(walker, 1, u64::wrapping_mul),
+            2 => op_packet_state.unwrap().fold(walker, u64::MAX, u64::min),
+            3 => op_packet_state.unwrap().fold(walker, 0, u64::max),
             4 => walker.literal_groups_val(),
             5 => u64::from(walker.walk_packet() > walker.walk_packet()),
             6 => u64::from(walker.walk_packet() < walker.walk_packet()),
@@ -189,27 +166,56 @@ enum OpPacketsState {
 }
 
 impl OpPacketsState {
-    fn new(reader: &'_ mut Reader) -> Self {
-        if reader.next_bits(1) == 0 {
+    fn new<W: WalkReducer>(walker: &'_ mut Walker<W>) -> Self {
+        if walker.reader.next_bits(1) == 0 {
             OpPacketsState::Type0 {
-                bit_count: reader.next_bits(15) as usize,
+                bit_count: walker.reader.next_bits(15) as usize,
                 bits: 0,
             }
         } else {
             OpPacketsState::Type1 {
-                packet_count: reader.next_bits(11) as usize,
+                packet_count: walker.reader.next_bits(11) as usize,
                 packets: 0,
             }
         }
     }
-    fn has_more(&self) -> bool {
+
+    fn next<W: WalkReducer>(&mut self, walker: &'_ mut Walker<W>) -> Option<u64> {
         match self {
-            OpPacketsState::Type0 { bit_count, bits } => bits < bit_count,
+            OpPacketsState::Type0 { bits, bit_count } => {
+                if bits < bit_count {
+                    let current_bit = walker.reader.bit_index;
+                    let result = walker.walk_packet();
+                    *bits += walker.reader.bit_index - current_bit;
+                    Some(result)
+                } else {
+                    None
+                }
+            }
             OpPacketsState::Type1 {
-                packet_count,
                 packets,
-            } => packets < packet_count,
+                packet_count,
+            } => {
+                if packets < packet_count {
+                    *packets += 1;
+                    Some(walker.walk_packet())
+                } else {
+                    None
+                }
+            }
         }
+    }
+
+    fn fold<F: Fn(u64, u64) -> u64, W: WalkReducer>(
+        &mut self,
+        walker: &'_ mut Walker<W>,
+        mut init: u64,
+        f: F,
+    ) -> u64 {
+        while let Some(val) = self.next(walker) {
+            init = f(init, val);
+        }
+        init
     }
 }
 
