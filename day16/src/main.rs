@@ -81,10 +81,10 @@ impl<W: WalkReducer> Walker<'_, '_, W> {
         let type_id = self.reader.next_bits(3);
 
         match type_id {
-            4 => W::process_literal(self, version),
+            4 => W::process_packet(self, version, 4, None),
             _ => {
                 let state = OpPacketsState::new(self.reader);
-                W::process_op(self, version, type_id, state)
+                W::process_packet(self, version, type_id, Some(state))
             }
         }
     }
@@ -130,51 +130,48 @@ impl<W: WalkReducer> Walker<'_, '_, W> {
 }
 
 trait WalkReducer {
-    fn process_literal(walker: &mut Walker<'_, '_, Self>, version: u64) -> u64;
-    fn process_op(
+    fn process_packet(
         walker: &mut Walker<'_, '_, Self>,
         version: u64,
         type_id: u64,
-        op_packet_state: OpPacketsState,
+        op_packet_state: Option<OpPacketsState>,
     ) -> u64;
 }
 
 struct VersionSum;
 
 impl WalkReducer for VersionSum {
-    fn process_literal(walker: &mut Walker<'_, '_, Self>, version: u64) -> u64 {
-        walker.literal_groups_val();
-        version
-    }
-
-    fn process_op(
+    fn process_packet(
         walker: &mut Walker<'_, '_, Self>,
         version: u64,
-        _type_id: u64,
-        mut op_packet_state: OpPacketsState,
+        type_id: u64,
+        op_packet_state: Option<OpPacketsState>,
     ) -> u64 {
-        version + walker.reduce_op_packets(&mut op_packet_state, 0, u64::wrapping_add)
+        match type_id {
+            4 =>  {
+                walker.literal_groups_val();
+                version
+            },
+            _ => version + walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add)
+        }
     }
 }
 
 struct Evaluator;
 
 impl WalkReducer for Evaluator {
-    fn process_literal(walker: &mut Walker<'_, '_, Self>, _version: u64) -> u64 {
-        walker.literal_groups_val()
-    }
-
-    fn process_op(
+    fn process_packet(
         walker: &mut Walker<'_, '_, Self>,
         _version: u64,
         type_id: u64,
-        mut op_packet_state: OpPacketsState,
+        op_packet_state: Option<OpPacketsState>,
     ) -> u64 {
         match type_id {
-            0 => walker.reduce_op_packets(&mut op_packet_state, 0, u64::wrapping_add),
-            1 => walker.reduce_op_packets(&mut op_packet_state, 1, u64::wrapping_mul),
-            2 => walker.reduce_op_packets(&mut op_packet_state, u64::MAX, u64::min),
-            3 => walker.reduce_op_packets(&mut op_packet_state, 0, u64::max),
+            0 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add),
+            1 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 1, u64::wrapping_mul),
+            2 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), u64::MAX, u64::min),
+            3 => walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::max),
+            4 => walker.literal_groups_val(),
             5 => u64::from(walker.walk_packet() > walker.walk_packet()),
             6 => u64::from(walker.walk_packet() < walker.walk_packet()),
             7 => u64::from(walker.walk_packet() == walker.walk_packet()),
