@@ -29,11 +29,20 @@ impl<'a> Reader<'a> {
     }
 
     #[inline(always)]
-    fn hex_at(&self, string_index: usize) -> u8 {
-        char::from_u32(self.text.as_bytes()[string_index] as u32)
-            .unwrap()
-            .to_digit(16)
-            .unwrap() as u8
+    fn hex_at(&mut self, string_index: usize) -> u8 {
+        if self.hex_index == string_index {
+            self.hex
+        } else {
+            self.hex_index = string_index;
+            self.hex = self
+                .text
+                .as_bytes()
+                .get(string_index)
+                .and_then(| b| char::from_u32(*b as u32))
+                .and_then(| c |c.to_digit(16))
+                .map(| c |c as u8);
+            self.hex
+        }.unwrap()
     }
 
     fn next_bits(&mut self, bit_count: u8) -> u64 {
@@ -41,12 +50,8 @@ impl<'a> Reader<'a> {
         let mut bits_left = bit_count;
         while bits_left > 0 {
             result <<= 1;
-            let (curr_index, bit_index) = (self.bit_index >> 2, self.bit_index & 0b11);
-            if curr_index != self.hex_index {
-                self.hex_index = curr_index;
-                self.hex = Some(self.hex_at(self.hex_index));
-            }
-            let bit = ((self.hex.unwrap() >> (3 - bit_index)) & 1) as u64;
+            let (hex_index, bit_index) = (self.bit_index >> 2, self.bit_index & 0b11);
+            let bit = ((self.hex_at(hex_index) >> (3 - bit_index)) & 1) as u64;
             result |= bit;
             self.bit_index += 1;
             bits_left -= 1
@@ -225,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_hex_at() {
-        let r = Reader::new("D2FE28");
+        let mut r = Reader::new("D2FE28");
         assert_eq!(r.hex_at(0), 13);
         assert_eq!(r.hex_at(1), 2);
         assert_eq!(r.hex_at(2), 15);
