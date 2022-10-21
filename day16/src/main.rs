@@ -49,22 +49,22 @@ impl<'a> Reader<'a> {
         result
     }
 
-    fn version_sum(&mut self) -> u64 {
+    fn version_sum(self) -> u64 {
         Walker::<VersionSum>::new(self).walk()
     }
 
-    fn eval(&mut self) -> u64 {
+    fn eval(self) -> u64 {
         Walker::<Evaluator>::new(self).walk()
     }
 }
 
-struct Walker<'a, 'b, W: WalkReducer + ?Sized> {
-    reader: &'b mut Reader<'a>,
+struct Walker<'a, W: WalkReducer + ?Sized> {
+    reader: Reader<'a>,
     reducer: PhantomData<W>,
 }
 
-impl<'a, 'b, W: WalkReducer> Walker<'a, 'b, W> {
-    fn new(reader: &'b mut Reader<'a>) -> Self {
+impl<'a, W: WalkReducer> Walker<'a, W> {
+    fn new(reader: Reader<'a>) -> Self {
         Walker {
             reader,
             reducer: PhantomData::<W>,
@@ -82,7 +82,7 @@ impl<'a, 'b, W: WalkReducer> Walker<'a, 'b, W> {
         match type_id {
             4 => W::process_packet(self, version, 4, None),
             _ => {
-                let state = OpPacketsState::new(self.reader);
+                let state = OpPacketsState::new(&mut self.reader);
                 W::process_packet(self, version, type_id, Some(state))
             }
         }
@@ -130,7 +130,7 @@ impl<'a, 'b, W: WalkReducer> Walker<'a, 'b, W> {
 
 trait WalkReducer {
     fn process_packet(
-        walker: &mut Walker<'_, '_, Self>,
+        walker: &mut Walker<'_, Self>,
         version: u64,
         type_id: u64,
         op_packet_state: Option<OpPacketsState>,
@@ -141,7 +141,7 @@ struct VersionSum;
 
 impl WalkReducer for VersionSum {
     fn process_packet(
-        walker: &mut Walker<'_, '_, Self>,
+        walker: &mut Walker<'_, Self>,
         version: u64,
         type_id: u64,
         op_packet_state: Option<OpPacketsState>,
@@ -160,7 +160,7 @@ struct Evaluator;
 
 impl WalkReducer for Evaluator {
     fn process_packet(
-        walker: &mut Walker<'_, '_, Self>,
+        walker: &mut Walker<'_, Self>,
         _version: u64,
         type_id: u64,
         op_packet_state: Option<OpPacketsState>,
