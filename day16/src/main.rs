@@ -1,6 +1,6 @@
 //#![allow(dead_code)]
 
-// No allocation... weee !
+// No allocation! ... WEEE !
 
 use std::marker::PhantomData;
 
@@ -68,9 +68,9 @@ impl<'a, W: WalkReducer> Walker<'a, W> {
         Walker {
             reader,
             reducer: PhantomData::<W>,
-        }        
+        }
     }
-    
+
     fn walk(&mut self) -> u64 {
         self.walk_packet()
     }
@@ -147,11 +147,14 @@ impl WalkReducer for VersionSum {
         op_packet_state: Option<OpPacketsState>,
     ) -> u64 {
         match type_id {
-            4 =>  {
+            4 => {
                 walker.literal_groups_val();
                 version
-            },
-            _ => version + walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add)
+            }
+            _ => {
+                version
+                    + walker.reduce_op_packets(&mut op_packet_state.unwrap(), 0, u64::wrapping_add)
+            }
         }
     }
 }
