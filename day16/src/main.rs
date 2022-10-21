@@ -50,19 +50,11 @@ impl<'a> Reader<'a> {
     }
 
     fn version_sum(&mut self) -> u64 {
-        Walker {
-            reader: self,
-            reducer: PhantomData::<VersionSum>,
-        }
-        .walk()
+        Walker::<VersionSum>::new(self).walk()
     }
 
     fn eval(&mut self) -> u64 {
-        Walker {
-            reader: self,
-            reducer: PhantomData::<Evaluator>,
-        }
-        .walk()
+        Walker::<Evaluator>::new(self).walk()
     }
 }
 
@@ -71,7 +63,14 @@ struct Walker<'a, 'b, W: WalkReducer + ?Sized> {
     reducer: PhantomData<W>,
 }
 
-impl<W: WalkReducer> Walker<'_, '_, W> {
+impl<'a, 'b, W: WalkReducer> Walker<'a, 'b, W> {
+    fn new(reader: &'b mut Reader<'a>) -> Self {
+        Walker {
+            reader,
+            reducer: PhantomData::<W>,
+        }        
+    }
+    
     fn walk(&mut self) -> u64 {
         self.walk_packet()
     }
