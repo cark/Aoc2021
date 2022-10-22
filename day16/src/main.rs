@@ -38,11 +38,12 @@ impl<'a> Reader<'a> {
                 .text
                 .as_bytes()
                 .get(string_index)
-                .and_then(| b| char::from_u32(*b as u32))
-                .and_then(| c |c.to_digit(16))
-                .map(| c |c as u8);
+                .and_then(|b| char::from_u32(*b as u32))
+                .and_then(|c| c.to_digit(16))
+                .map(|c| c as u8);
             self.hex
-        }.unwrap()
+        }
+        .unwrap()
     }
 
     fn next_bits(&mut self, bit_count: u8) -> u64 {
