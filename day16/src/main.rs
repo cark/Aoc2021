@@ -1,8 +1,6 @@
-//#![allow(dead_code)]
+#![allow(dead_code)]
 
 // No allocation! ... WEEE !
-
-use std::marker::PhantomData;
 
 fn main() {
     let input = include_str!("input.txt");
@@ -61,40 +59,35 @@ impl<'a> Reader<'a> {
     }
 
     fn version_sum(self) -> u64 {
-        Walker::<VersionSum>::new(self).walk()
+        VersionSum { reader: self }.walk_packet()
     }
 
     fn eval(self) -> u64 {
-        Walker::<Evaluator>::new(self).walk()
+        Evaluator { reader: self }.walk_packet()
     }
 }
 
-struct Walker<'a, W: WalkReducer + ?Sized> {
-    reader: Reader<'a>,
-    reducer: PhantomData<W>,
-}
+trait Walker<'a> {
+    fn reader<'b>(&'b mut self) -> &mut Reader<'a>;
 
-impl<'a, W: WalkReducer> Walker<'a, W> {
-    fn new(reader: Reader<'a>) -> Self {
-        Walker {
-            reader,
-            reducer: PhantomData::<W>,
-        }
-    }
+    fn process_packet(
+        &mut self,
+        version: Version,
+        type_id: TypeId,
+        packet_state: Option<OpPacketsState>,
+    ) -> u64;
 
-    fn walk(&mut self) -> u64 {
-        self.walk_packet()
-    }
-
-    fn walk_packet(&mut self) -> u64 {
-        let version = self.reader.next_bits(3);
-        let type_id = self.reader.next_bits(3);
-
+    fn walk_packet(&mut self) -> u64
+    where
+        Self: std::marker::Sized,
+    {
+        let version = self.reader().next_bits(3);
+        let type_id = self.reader().next_bits(3);
         match type_id {
-            4 => W::process_packet(self, version, 4, None),
+            4 => self.process_packet(Version(version), TypeId(4), None),
             _ => {
-                let state = OpPacketsState::new(self);
-                W::process_packet(self, version, type_id, Some(state))
+                let st = OpPacketsState::new(self);
+                self.process_packet(Version(version), TypeId(type_id), Some(st))
             }
         }
     }
@@ -103,7 +96,7 @@ impl<'a, W: WalkReducer> Walker<'a, W> {
         let mut result = 0;
         loop {
             result <<= 4;
-            let group = self.reader.next_bits(5);
+            let group = self.reader().next_bits(5);
             result += group & 0b1111;
             if group & 0b10000 == 0 {
                 break result;
@@ -112,58 +105,8 @@ impl<'a, W: WalkReducer> Walker<'a, W> {
     }
 }
 
-trait WalkReducer {
-    fn process_packet(
-        walker: &mut Walker<'_, Self>,
-        version: u64,
-        type_id: u64,
-        op_packet_state: Option<OpPacketsState>,
-    ) -> u64;
-}
-
-struct VersionSum;
-
-impl WalkReducer for VersionSum {
-    fn process_packet(
-        walker: &mut Walker<'_, Self>,
-        version: u64,
-        type_id: u64,
-        op_packet_state: Option<OpPacketsState>,
-    ) -> u64 {
-        match type_id {
-            4 => {
-                walker.literal_groups_val();
-                version
-            }
-            _ => op_packet_state
-                .unwrap()
-                .fold(walker, version, u64::wrapping_add),
-        }
-    }
-}
-
-struct Evaluator;
-
-impl WalkReducer for Evaluator {
-    fn process_packet(
-        walker: &mut Walker<'_, Self>,
-        _version: u64,
-        type_id: u64,
-        op_packet_state: Option<OpPacketsState>,
-    ) -> u64 {
-        match type_id {
-            0 => op_packet_state.unwrap().fold(walker, 0, u64::wrapping_add),
-            1 => op_packet_state.unwrap().fold(walker, 1, u64::wrapping_mul),
-            2 => op_packet_state.unwrap().fold(walker, u64::MAX, u64::min),
-            3 => op_packet_state.unwrap().fold(walker, 0, u64::max),
-            4 => walker.literal_groups_val(),
-            5 => u64::from(walker.walk_packet() > walker.walk_packet()),
-            6 => u64::from(walker.walk_packet() < walker.walk_packet()),
-            7 => u64::from(walker.walk_packet() == walker.walk_packet()),
-            _ => unreachable!(),
-        }
-    }
-}
+struct Version(u64);
+struct TypeId(u64);
 
 #[derive(Debug)]
 enum OpPacketsState {
@@ -171,28 +114,83 @@ enum OpPacketsState {
     Type1 { packet_count: usize, packets: usize },
 }
 
+struct VersionSum<'a> {
+    reader: Reader<'a>,
+}
+
+impl<'a> Walker<'a> for VersionSum<'a> {
+    fn reader<'b>(&'b mut self) -> &mut Reader<'a> {
+        &mut self.reader
+    }
+
+    fn process_packet(
+        &mut self,
+        version: Version,
+        type_id: TypeId,
+        packet_state: Option<OpPacketsState>,
+    ) -> u64 {
+        match type_id {
+            TypeId(4) => {
+                self.literal_groups_val();
+                version.0
+            }
+            _ => packet_state
+                .unwrap()
+                .fold(self, version.0, u64::wrapping_add),
+        }
+    }
+}
+
+struct Evaluator<'a> {
+    reader: Reader<'a>,
+}
+
+impl<'a> Walker<'a> for Evaluator<'a> {
+    fn reader<'b>(&'b mut self) -> &mut Reader<'a> {
+        &mut self.reader
+    }
+    fn process_packet(
+        &mut self,
+        _version: Version,
+        type_id: TypeId,
+        op_packet_state: Option<OpPacketsState>,
+    ) -> u64 {
+        match type_id.0 {
+            0 => op_packet_state.unwrap().fold(self, 0, u64::wrapping_add),
+            1 => op_packet_state.unwrap().fold(self, 1, u64::wrapping_mul),
+            2 => op_packet_state.unwrap().fold(self, u64::MAX, u64::min),
+            3 => op_packet_state.unwrap().fold(self, 0, u64::max),
+            4 => self.literal_groups_val(),
+            5 => u64::from(self.walk_packet() > self.walk_packet()),
+            6 => u64::from(self.walk_packet() < self.walk_packet()),
+            7 => u64::from(self.walk_packet() == self.walk_packet()),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl OpPacketsState {
-    fn new<W: WalkReducer>(walker: &'_ mut Walker<W>) -> Self {
-        if walker.reader.next_bits(1) == 0 {
+    fn new(walker: &mut dyn Walker<'_>) -> Self {
+        if walker.reader().next_bits(1) == 0 {
             OpPacketsState::Type0 {
-                bit_count: walker.reader.next_bits(15) as usize,
+                bit_count: walker.reader().next_bits(15) as usize,
                 bits: 0,
             }
         } else {
             OpPacketsState::Type1 {
-                packet_count: walker.reader.next_bits(11) as usize,
+                packet_count: walker.reader().next_bits(11) as usize,
                 packets: 0,
             }
         }
     }
 
-    fn next<W: WalkReducer>(&mut self, walker: &'_ mut Walker<W>) -> Option<u64> {
+    fn next<'a, 'b>(&'a mut self, walker: &'a mut impl Walker<'b>) -> Option<u64> {
         match self {
             OpPacketsState::Type0 { bits, bit_count } => {
                 if bits < bit_count {
-                    let current_bit = walker.reader.bit_index;
+                    let current_bit = walker.reader().bit_index;
                     let result = walker.walk_packet();
-                    *bits += walker.reader.bit_index - current_bit;
+                    *bits += walker.reader().bit_index - current_bit;
                     Some(result)
                 } else {
                     None
@@ -212,16 +210,17 @@ impl OpPacketsState {
         }
     }
 
-    fn fold<F: Fn(u64, u64) -> u64, W: WalkReducer>(
-        &mut self,
-        walker: &'_ mut Walker<W>,
-        mut init: u64,
+    fn fold<'a, 'b, F: Fn(u64, u64) -> u64>(
+        &'a mut self,
+        walker: &'a mut impl Walker<'b>,
+        init: u64,
         f: F,
     ) -> u64 {
+        let mut result = init;
         while let Some(val) = self.next(walker) {
-            init = f(init, val);
+            result = f(result, val);
         }
-        init
+        result
     }
 }
 
