@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
 // No allocation! ... WEEE !
 
@@ -58,151 +58,139 @@ impl<'a> Reader<'a> {
         result
     }
 
-    fn version_sum(self) -> u64 {
-        VersionSum { reader: self }.walk_packet()
+    fn version_sum(mut self) -> u64 {
+        walk(&mut self, &ProcessPacketFn(process_packet_for_version_sum))
     }
 
-    fn eval(self) -> u64 {
-        Evaluator { reader: self }.walk_packet()
-    }
-}
-
-trait Walker<'a> {
-    fn reader<'b>(&'b mut self) -> &mut Reader<'a>;
-
-    fn process_packet(
-        &mut self,
-        version: Version,
-        type_id: TypeId,
-        packet_state: Option<OpPacketsState>,
-    ) -> u64;
-
-    fn walk_packet(&mut self) -> u64
-    where
-        Self: std::marker::Sized,
-    {
-        let version = self.reader().next_bits(3);
-        let type_id = self.reader().next_bits(3);
-        match type_id {
-            4 => self.process_packet(Version(version), TypeId(4), None),
-            _ => {
-                let st = OpPacketsState::new(self);
-                self.process_packet(Version(version), TypeId(type_id), Some(st))
-            }
-        }
-    }
-
-    fn literal_groups_val(&mut self) -> u64 {
-        let mut result = 0;
-        loop {
-            result <<= 4;
-            let group = self.reader().next_bits(5);
-            result += group & 0b1111;
-            if group & 0b10000 == 0 {
-                break result;
-            }
-        }
+    fn eval(mut self) -> u64 {
+        walk(&mut self, &ProcessPacketFn(process_packet_for_eval))
     }
 }
+
+// new type required here due to recursive definition
+struct ProcessPacketFn(
+    fn(&mut Reader, &ProcessPacketFn, Version, TypeId, Option<SubPackets>) -> u64,
+);
 
 struct Version(u64);
 struct TypeId(u64);
 
+fn walk(reader: &mut Reader<'_>, process_packet: &ProcessPacketFn) -> u64 {
+    let version = reader.next_bits(3);
+    let type_id = reader.next_bits(3);
+    match type_id {
+        4 => process_packet.0(reader, process_packet, Version(version), TypeId(4), None),
+        _ => {
+            let st = SubPackets::new(reader);
+            process_packet.0(
+                reader,
+                process_packet,
+                Version(version),
+                TypeId(type_id),
+                Some(st),
+            )
+        }
+    }
+}
+
+fn literal_groups_val(reader: &mut Reader<'_>) -> u64 {
+    let mut result = 0;
+    loop {
+        result <<= 4;
+        let group = reader.next_bits(5);
+        result += group & 0b1111;
+        if group & 0b10000 == 0 {
+            break result;
+        }
+    }
+}
+
+fn process_packet_for_version_sum(
+    reader: &mut Reader<'_>,
+    process_packet: &ProcessPacketFn,
+    version: Version,
+    type_id: TypeId,
+    sub_packets: Option<SubPackets>,
+) -> u64 {
+    match type_id {
+        TypeId(4) => {
+            literal_groups_val(reader);
+            version.0
+        }
+        _ => sub_packets
+            .unwrap()
+            .fold(reader, process_packet, version.0, u64::wrapping_add),
+    }
+}
+
+fn process_packet_for_eval(
+    reader: &mut Reader<'_>,
+    process_packet: &ProcessPacketFn,
+    _version: Version,
+    type_id: TypeId,
+    sub_packets: Option<SubPackets>,
+) -> u64 {
+    match type_id.0 {
+        0 => sub_packets
+            .unwrap()
+            .fold(reader, process_packet, 0, u64::wrapping_add),
+        1 => sub_packets
+            .unwrap()
+            .fold(reader, process_packet, 1, u64::wrapping_mul),
+        2 => sub_packets
+            .unwrap()
+            .fold(reader, process_packet, u64::MAX, u64::min),
+        3 => sub_packets
+            .unwrap()
+            .fold(reader, process_packet, 0, u64::max),
+        4 => literal_groups_val(reader),
+        5 => u64::from(walk(reader, process_packet) > walk(reader, process_packet)),
+        6 => u64::from(walk(reader, process_packet) < walk(reader, process_packet)),
+        7 => u64::from(walk(reader, process_packet) == walk(reader, process_packet)),
+        _ => unreachable!(),
+    }
+}
+
 #[derive(Debug)]
-enum OpPacketsState {
+enum SubPackets {
     Type0 { bit_count: usize, bits: usize },
     Type1 { packet_count: usize, packets: usize },
 }
 
-struct VersionSum<'a> {
-    reader: Reader<'a>,
-}
-
-impl<'a> Walker<'a> for VersionSum<'a> {
-    fn reader<'b>(&'b mut self) -> &mut Reader<'a> {
-        &mut self.reader
-    }
-
-    fn process_packet(
-        &mut self,
-        version: Version,
-        type_id: TypeId,
-        packet_state: Option<OpPacketsState>,
-    ) -> u64 {
-        match type_id {
-            TypeId(4) => {
-                self.literal_groups_val();
-                version.0
-            }
-            _ => packet_state
-                .unwrap()
-                .fold(self, version.0, u64::wrapping_add),
-        }
-    }
-}
-
-struct Evaluator<'a> {
-    reader: Reader<'a>,
-}
-
-impl<'a> Walker<'a> for Evaluator<'a> {
-    fn reader<'b>(&'b mut self) -> &mut Reader<'a> {
-        &mut self.reader
-    }
-    fn process_packet(
-        &mut self,
-        _version: Version,
-        type_id: TypeId,
-        op_packet_state: Option<OpPacketsState>,
-    ) -> u64 {
-        match type_id.0 {
-            0 => op_packet_state.unwrap().fold(self, 0, u64::wrapping_add),
-            1 => op_packet_state.unwrap().fold(self, 1, u64::wrapping_mul),
-            2 => op_packet_state.unwrap().fold(self, u64::MAX, u64::min),
-            3 => op_packet_state.unwrap().fold(self, 0, u64::max),
-            4 => self.literal_groups_val(),
-            5 => u64::from(self.walk_packet() > self.walk_packet()),
-            6 => u64::from(self.walk_packet() < self.walk_packet()),
-            7 => u64::from(self.walk_packet() == self.walk_packet()),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl OpPacketsState {
-    fn new(walker: &mut dyn Walker<'_>) -> Self {
-        if walker.reader().next_bits(1) == 0 {
-            OpPacketsState::Type0 {
-                bit_count: walker.reader().next_bits(15) as usize,
+impl SubPackets {
+    fn new(reader: &mut Reader<'_>) -> Self {
+        if reader.next_bits(1) == 0 {
+            SubPackets::Type0 {
+                bit_count: reader.next_bits(15) as usize,
                 bits: 0,
             }
         } else {
-            OpPacketsState::Type1 {
-                packet_count: walker.reader().next_bits(11) as usize,
+            SubPackets::Type1 {
+                packet_count: reader.next_bits(11) as usize,
                 packets: 0,
             }
         }
     }
 
-    fn next<'a, 'b>(&'a mut self, walker: &'a mut impl Walker<'b>) -> Option<u64> {
+    fn next(&mut self, reader: &mut Reader<'_>, process_packet: &ProcessPacketFn) -> Option<u64> {
         match self {
-            OpPacketsState::Type0 { bits, bit_count } => {
+            SubPackets::Type0 { bits, bit_count } => {
                 if bits < bit_count {
-                    let current_bit = walker.reader().bit_index;
-                    let result = walker.walk_packet();
-                    *bits += walker.reader().bit_index - current_bit;
+                    let current_bit = reader.bit_index;
+                    let result = walk(reader, process_packet);
+                    *bits += reader.bit_index - current_bit;
                     Some(result)
                 } else {
                     None
                 }
             }
-            OpPacketsState::Type1 {
+            SubPackets::Type1 {
                 packets,
                 packet_count,
             } => {
                 if packets < packet_count {
                     *packets += 1;
-                    Some(walker.walk_packet())
+                    Some(walk(reader, process_packet))
                 } else {
                     None
                 }
@@ -210,14 +198,15 @@ impl OpPacketsState {
         }
     }
 
-    fn fold<'a, 'b, F: Fn(u64, u64) -> u64>(
-        &'a mut self,
-        walker: &'a mut impl Walker<'b>,
+    fn fold(
+        &mut self,
+        reader: &mut Reader<'_>,
+        process_packet: &ProcessPacketFn,
         init: u64,
-        f: F,
+        f: impl Fn(u64, u64) -> u64,
     ) -> u64 {
         let mut result = init;
-        while let Some(val) = self.next(walker) {
+        while let Some(val) = self.next(reader, process_packet) {
             result = f(result, val);
         }
         result
