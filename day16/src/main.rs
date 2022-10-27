@@ -151,49 +151,41 @@ fn process_packet_for_eval(
     }
 }
 
-#[derive(Debug)]
-enum SubPackets {
-    Type0 { bit_count: usize, bits: usize },
-    Type1 { packet_count: usize, packets: usize },
+struct SubPackets {
+    index: usize,
+    count: usize,
+    next: fn(&mut SubPackets, &mut Reader<'_>, &ProcessPacketFn) -> Option<u64>,
 }
 
 impl SubPackets {
     fn new(reader: &mut Reader<'_>) -> Self {
         if reader.next_bits(1) == 0 {
-            SubPackets::Type0 {
-                bit_count: reader.next_bits(15) as usize,
-                bits: 0,
+            Self {
+                index: 0,
+                count: reader.next_bits(15) as usize,
+                next: |sub_packets, reader, process_packet| {
+                    if sub_packets.index < sub_packets.count {
+                        let current_bit = reader.bit_index;
+                        let result = walk(reader, process_packet);
+                        sub_packets.index += reader.bit_index - current_bit;
+                        Some(result)
+                    } else {
+                        None
+                    }
+                },
             }
         } else {
-            SubPackets::Type1 {
-                packet_count: reader.next_bits(11) as usize,
-                packets: 0,
-            }
-        }
-    }
-
-    fn next(&mut self, reader: &mut Reader<'_>, process_packet: &ProcessPacketFn) -> Option<u64> {
-        match self {
-            SubPackets::Type0 { bits, bit_count } => {
-                if bits < bit_count {
-                    let current_bit = reader.bit_index;
-                    let result = walk(reader, process_packet);
-                    *bits += reader.bit_index - current_bit;
-                    Some(result)
-                } else {
-                    None
-                }
-            }
-            SubPackets::Type1 {
-                packets,
-                packet_count,
-            } => {
-                if packets < packet_count {
-                    *packets += 1;
-                    Some(walk(reader, process_packet))
-                } else {
-                    None
-                }
+            Self {
+                index: 0,
+                count: reader.next_bits(11) as usize,
+                next: |sub_packets, reader, process_packet| {
+                    if sub_packets.index < sub_packets.count {
+                        sub_packets.index += 1;
+                        Some(walk(reader, process_packet))
+                    } else {
+                        None
+                    }
+                },
             }
         }
     }
@@ -206,7 +198,7 @@ impl SubPackets {
         f: impl Fn(u64, u64) -> u64,
     ) -> u64 {
         let mut result = init;
-        while let Some(val) = self.next(reader, process_packet) {
+        while let Some(val) = (self.next)(self, reader, process_packet) {
             result = f(result, val);
         }
         result
